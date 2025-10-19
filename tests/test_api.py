@@ -45,6 +45,35 @@ def test_list_entries_since_filter() -> None:
     assert isinstance(response.json(), list)
 
 
+def test_update_entry_status_and_transcripts() -> None:
+    auth_response = client.post("/v1/auth/email", json={"email": "update@example.com"})
+    assert auth_response.status_code == 200
+    user_id = auth_response.json()["user_id"]
+
+    create_resp = client.post(
+        "/v1/entries",
+        json={"user_id": user_id, "duration_s": 30},
+    )
+    assert create_resp.status_code == 201
+    entry_id = create_resp.json()["entry_id"]
+
+    update_resp = client.patch(
+        f"/v1/entries/{entry_id}",
+        json={
+            "status": "transcribed",
+            "audio_url": "https://cdn.example.com/audio.m4a",
+            "transcript_raw": "raw text",
+            "transcript_clean": "Clean text.",
+        },
+    )
+    assert update_resp.status_code == 200
+    payload = update_resp.json()
+    assert payload["status"] == "transcribed"
+    assert payload["audio_url"].endswith("audio.m4a")
+    assert payload["transcript_clean"] == "Clean text."
+    assert payload["transcript_raw"] == "raw text"
+
+
 def test_create_export_request() -> None:
     # reuse user from previous creation to keep database simple
     auth_response = client.post("/v1/auth/email", json={"email": "exporter@example.com"})
