@@ -1,0 +1,110 @@
+"""Export request endpoints."""
+from datetime import datetime
+from typing import List
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+from sqlmodel import select
+
+from ..database import session_scope
+from ..models import ExportRequest, ExportStatus
+
+router = APIRouter()
+
+
+class ExportCreateRequest(BaseModel):
+    """Payload for requesting an export."""
+
+    user_id: int
+    date_from: datetime
+    date_to: datetime
+    email: str
+
+
+class ExportRead(BaseModel):
+    """Serialized representation of an export request."""
+
+    id: int
+    user_id: int
+    date_from: datetime
+    date_to: datetime
+    status: str
+    result_url: str | None
+    created_at: datetime
+
+
+@router.post("", response_model=ExportRead, status_code=201)
+def create_export(payload: ExportCreateRequest) -> ExportRead:
+    """Create an export request and simulate asynchronous processing."""
+    if payload.date_from > payload.date_to:
+        raise HTTPException(status_code=400, detail="date_from must be before date_to")
+
+    with session_scope() as session:
+        export = ExportRequest(
+            user_id=payload.user_id,
+            date_from=payload.date_from,
+            date_to=payload.date_to,
+            status=ExportStatus.PROCESSING,
+            result_url=None,
+        )
+        session.add(export)
+        session.commit()
+        session.refresh(export)
+
+    # Simulate asynchronous completion by immediately marking as complete.
+    with session_scope() as session:
+        stored = session.get(ExportRequest, export.id)
+        if stored:
+            stored.status = ExportStatus.COMPLETE
+            stored.result_url = f"https://downloads.example.com/exports/{stored.id}.zip"
+            session.add(stored)
+            session.commit()
+            session.refresh(stored)
+            export = stored
+
+    return ExportRead(
+        id=export.id,
+        user_id=export.user_id,
+        date_from=export.date_from,
+        date_to=export.date_to,
+        status=export.status,
+        result_url=export.result_url,
+        created_at=export.created_at,
+    )
+
+
+@router.get("", response_model=List[ExportRead])
+def list_exports(user_id: int) -> List[ExportRead]:
+    """List export requests for a user."""
+    with session_scope() as session:
+        exports = session.exec(select(ExportRequest).where(ExportRequest.user_id == user_id)).all()
+        return [
+            ExportRead(
+                id=item.id,
+                user_id=item.user_id,
+                date_from=item.date_from,
+                date_to=item.date_to,
+                status=item.status,
+                result_url=item.result_url,
+                created_at=item.created_at,
+            )
+            for item in exports
+        ]
+
+
+@router.get("/{export_id}", response_model=ExportRead)
+def get_export(export_id: int) -> ExportRead:
+    """Retrieve a single export request."""
+    with session_scope() as session:
+        export = session.get(ExportRequest, export_id)
+        if export is None:
+            raise HTTPException(status_code=404, detail="Export not found")
+        return ExportRead(
+            id=export.id,
+            user_id=export.user_id,
+            date_from=export.date_from,
+            date_to=export.date_to,
+            status=export.status,
+            result_url=export.result_url,
+            created_at=export.created_at,
+        )
