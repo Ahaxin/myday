@@ -1,5 +1,5 @@
 """Authentication endpoints."""
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
 from typing import Dict
 
 from fastapi import APIRouter, HTTPException
@@ -7,12 +7,9 @@ from jose import jwt
 from pydantic import BaseModel, EmailStr
 from sqlmodel import select
 
+from .. import config
 from ..database import session_scope
 from ..models import User
-
-SECRET_KEY = "myday-secret"
-ALGORITHM = "HS256"
-TOKEN_EXPIRY_MINUTES = 60
 
 router = APIRouter()
 
@@ -51,14 +48,16 @@ def authenticate_email(payload: EmailAuthRequest) -> TokenResponse:
             session.commit()
             session.refresh(existing_user)
 
-    expires_at = datetime.utcnow() + timedelta(minutes=TOKEN_EXPIRY_MINUTES)
-    token = _generate_token({"sub": str(existing_user.id), "email": existing_user.email, "exp": int(expires_at.timestamp())})
-    return TokenResponse(access_token=token, expires_at=expires_at, user_id=existing_user.id)
+    expires_at = datetime.now(timezone.utc) + config.access_token_expires_delta()
+    exp_ts = int(expires_at.timestamp())
+    token = _generate_token({"sub": str(existing_user.id), "email": existing_user.email, "exp": exp_ts})
+    # For response, provide naive ISO string for simplicity
+    return TokenResponse(access_token=token, expires_at=expires_at.replace(tzinfo=None), user_id=existing_user.id)
 
 
 def _generate_token(claims: Dict[str, str]) -> str:
     """Generate a signed JWT for the provided claims."""
     try:
-        return jwt.encode(claims, SECRET_KEY, algorithm=ALGORITHM)
+        return jwt.encode(claims, config.SECRET_KEY, algorithm=config.ALGORITHM)
     except Exception as exc:  # pragma: no cover - defensive
         raise HTTPException(status_code=500, detail="Failed to generate token") from exc

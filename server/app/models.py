@@ -36,6 +36,8 @@ class Entry(SQLModel, table=True):
     language: Optional[str] = Field(default=None)
     transcript_raw: Optional[str] = Field(default=None)
     transcript_clean: Optional[str] = Field(default=None)
+    failure_reason: Optional[str] = Field(default=None)
+    idempotency_key: Optional[str] = Field(default=None, index=True)
 
 
 class ExportStatus:

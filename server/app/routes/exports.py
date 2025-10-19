@@ -2,12 +2,13 @@
 from datetime import datetime
 from typing import List
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlmodel import select
 
 from ..database import session_scope
-from ..models import ExportRequest, ExportStatus
+from ..models import ExportRequest, ExportStatus, User
+from ..security import get_current_user
 
 router = APIRouter()
 
@@ -34,10 +35,15 @@ class ExportRead(BaseModel):
 
 
 @router.post("", response_model=ExportRead, status_code=201)
-def create_export(payload: ExportCreateRequest) -> ExportRead:
+def create_export(
+    payload: ExportCreateRequest,
+    current_user: User = Depends(get_current_user),
+) -> ExportRead:
     """Create an export request and simulate asynchronous processing."""
     if payload.date_from > payload.date_to:
         raise HTTPException(status_code=400, detail="date_from must be before date_to")
+    if payload.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="user_id mismatch")
 
     with session_scope() as session:
         export = ExportRequest(
@@ -74,8 +80,10 @@ def create_export(payload: ExportCreateRequest) -> ExportRead:
 
 
 @router.get("", response_model=List[ExportRead])
-def list_exports(user_id: int) -> List[ExportRead]:
+def list_exports(user_id: int, current_user: User = Depends(get_current_user)) -> List[ExportRead]:
     """List export requests for a user."""
+    if user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="user_id mismatch")
     with session_scope() as session:
         exports = session.exec(select(ExportRequest).where(ExportRequest.user_id == user_id)).all()
         return [
@@ -93,11 +101,11 @@ def list_exports(user_id: int) -> List[ExportRead]:
 
 
 @router.get("/{export_id}", response_model=ExportRead)
-def get_export(export_id: int) -> ExportRead:
+def get_export(export_id: int, current_user: User = Depends(get_current_user)) -> ExportRead:
     """Retrieve a single export request."""
     with session_scope() as session:
         export = session.get(ExportRequest, export_id)
-        if export is None:
+        if export is None or export.user_id != current_user.id:
             raise HTTPException(status_code=404, detail="Export not found")
         return ExportRead(
             id=export.id,

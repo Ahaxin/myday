@@ -3,3 +3,12 @@ sqlmodel
 uvicorn
 python-jose
 pydantic
+httpx
+email-validator
+boto3
+psycopg2-binary
+billiard==4.2.1
+celery==5.3.6
+redis==5.0.1
+alembic
+requests

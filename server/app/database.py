@@ -4,14 +4,20 @@ from typing import Iterator
 
 from sqlmodel import Session, SQLModel, create_engine
 
+from . import config
 
-DATABASE_URL = "sqlite:///./myday.db"
-engine = create_engine(DATABASE_URL, echo=False, future=True)
+
+engine = create_engine(config.DATABASE_URL, echo=False, future=True)
 
 
 def init_db() -> None:
-    """Create database tables."""
-    SQLModel.metadata.create_all(engine)
+    """Initialize database.
+
+    For SQLite (tests/dev), create tables automatically.
+    For other engines (e.g., Postgres), rely on Alembic migrations.
+    """
+    if config.DATABASE_URL.startswith("sqlite"):
+        SQLModel.metadata.create_all(engine)
 
 
 @contextmanager
