@@ -40,6 +40,7 @@ class EntryRead(BaseModel):
     size_bytes: Optional[int]
     language: Optional[str]
     transcript_clean: Optional[str]
+    transcript_raw: Optional[str] = None
 
 
 @router.post("", response_model=EntryCreateResponse, status_code=201)
@@ -82,6 +83,7 @@ def list_entries(since: Optional[datetime] = Query(default=None)) -> List[EntryR
                 size_bytes=row.size_bytes,
                 language=row.language,
                 transcript_clean=row.transcript_clean,
+                transcript_raw=row.transcript_raw,
             )
             for row in results
         ]
@@ -104,4 +106,57 @@ def get_entry(entry_id: int) -> EntryRead:
             size_bytes=entry.size_bytes,
             language=entry.language,
             transcript_clean=entry.transcript_clean,
+            transcript_raw=entry.transcript_raw,
+        )
+
+
+class EntryUpdateRequest(BaseModel):
+    """Payload used to update entry metadata once processing completes."""
+
+    status: Optional[str] = None
+    audio_url: Optional[str] = None
+    size_bytes: Optional[int] = None
+    language: Optional[str] = None
+    transcript_raw: Optional[str] = None
+    transcript_clean: Optional[str] = None
+
+
+@router.patch("/{entry_id}", response_model=EntryRead)
+def update_entry(entry_id: int, payload: EntryUpdateRequest) -> EntryRead:
+    """Update mutable entry fields used by background workers."""
+
+    updates = payload.dict(exclude_unset=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields provided for update")
+
+    if "status" in updates and updates["status"] not in {
+        EntryStatus.UPLOADED,
+        EntryStatus.TRANSCRIBED,
+        EntryStatus.FAILED,
+    }:
+        raise HTTPException(status_code=400, detail="Invalid status value")
+
+    with session_scope() as session:
+        entry = session.get(Entry, entry_id)
+        if entry is None:
+            raise HTTPException(status_code=404, detail="Entry not found")
+
+        for field, value in updates.items():
+            setattr(entry, field, value)
+
+        session.add(entry)
+        session.commit()
+        session.refresh(entry)
+
+        return EntryRead(
+            id=entry.id,
+            user_id=entry.user_id,
+            created_at=entry.created_at,
+            duration_s=entry.duration_s,
+            status=entry.status,
+            audio_url=entry.audio_url,
+            size_bytes=entry.size_bytes,
+            language=entry.language,
+            transcript_clean=entry.transcript_clean,
+            transcript_raw=entry.transcript_raw,
         )
