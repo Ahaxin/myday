@@ -72,6 +72,33 @@ def test_finalize_upload_sets_audio_url() -> None:
     assert data["size_bytes"] == 2048
 
 
+def test_transcribe_endpoint_smoke() -> None:
+    headers, user_id = _auth("transcribe-smoke@example.com")
+    # Create and finalize to set processing
+    create = client.post(
+        "/v1/entries",
+        json={"user_id": user_id, "duration_s": 5},
+        headers=headers,
+    )
+    assert create.status_code == 201
+    body = create.json()
+    eid = body["entry_id"]
+    object_key = body["object_key"]
+
+    fin = client.post(
+        f"/v1/entries/{eid}/finalize",
+        json={"object_key": object_key},
+        headers=headers,
+    )
+    assert fin.status_code == 200
+    assert fin.json()["status"] in ("processing", "transcribed")
+
+    # Re-enqueue transcription
+    tr = client.post(f"/v1/entries/{eid}/transcribe", json={}, headers=headers)
+    assert tr.status_code == 200
+    assert tr.json()["status"] in ("processing", "transcribed")
+
+
 def test_list_entries_since_filter() -> None:
     headers, _ = _auth("list-since@example.com")
     cutoff = (datetime.utcnow() - timedelta(days=1)).isoformat()

@@ -5,7 +5,7 @@ from celery import Celery
 
 from . import config
 from .database import session_scope
-from .models import Entry, EntryStatus
+from .models import Entry, EntryStatus, ExportRequest, ExportStatus
 import time
 import uuid
 
@@ -161,3 +161,87 @@ def transcribe_entry(entry_id: int, idempotency_key: str | None = None) -> dict:
             session.commit()
             session.refresh(entry)
         return {"ok": entry.status == EntryStatus.TRANSCRIBED, "entry_id": entry_id, "status": entry.status}
+
+
+@celery_app.task(name="generate_export")
+def generate_export(export_id: int) -> dict:
+    """Create a zip containing audio and cleaned transcripts for an export request.
+
+    On success, uploads zip to storage and marks EXPORT as COMPLETE with result_url.
+    On failure, marks as FAILED with failure reason retained in DB via status only.
+    """
+    import io
+    import zipfile
+    from datetime import timezone
+    from .storage import upload_file, object_public_url
+    import requests  # type: ignore
+
+    with session_scope() as session:
+        export = session.get(ExportRequest, export_id)
+        if not export:
+            return {"ok": False, "reason": "not_found", "export_id": export_id}
+
+        export.status = ExportStatus.PROCESSING
+        session.add(export)
+        session.commit()
+
+        # Gather entries
+        from sqlmodel import select
+        statement = (
+            select(Entry)
+            .where(Entry.user_id == export.user_id)
+            .where(Entry.created_at >= export.date_from)
+            .where(Entry.created_at <= export.date_to)
+            .order_by(Entry.created_at.asc())
+        )
+        entries = session.exec(statement).all()
+
+        # Build zip in temp file
+        import tempfile
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
+        tmp_path = tmp.name
+        tmp.close()
+
+        def fname_base(dt):
+            ts = dt.replace(tzinfo=timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
+            return ts
+
+        try:
+            with zipfile.ZipFile(tmp_path, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+                for e in entries:
+                    base = fname_base(e.created_at)
+                    # Transcript file
+                    if e.transcript_clean:
+                        zf.writestr(f"{base}.txt", e.transcript_clean)
+                    # Audio file (best-effort download)
+                    if e.audio_url:
+                        try:
+                            with requests.get(e.audio_url, stream=True, timeout=10) as r:
+                                r.raise_for_status()
+                                data = io.BytesIO(r.content)
+                                zf.writestr(f"{base}.m4a", data.getvalue())
+                        except Exception:
+                            # Skip audio on failure; continue building zip
+                            pass
+
+            # Upload zip
+            object_key = f"exports/{export.user_id}/{export.id}.zip"
+            download_url = upload_file(object_key, tmp_path, content_type="application/zip")
+
+            export.status = ExportStatus.COMPLETE
+            export.result_url = download_url or object_public_url(object_key)
+            session.add(export)
+            session.commit()
+            session.refresh(export)
+            return {"ok": True, "export_id": export.id, "status": export.status}
+        except Exception as e:
+            export.status = ExportStatus.FAILED
+            session.add(export)
+            session.commit()
+            return {"ok": False, "export_id": export.id, "status": export.status, "error": str(e)[:500]}
+        finally:
+            import os
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass

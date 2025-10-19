@@ -98,3 +98,25 @@ def object_exists(object_key: str) -> bool:
         return True
     except ClientError:
         return False
+
+
+def upload_file(object_key: str, local_path: str, content_type: str = "application/octet-stream") -> str:
+    """Upload a local file to storage under object_key and return its public URL.
+
+    - placeholder backend: pretends upload succeeded and returns a CDN URL.
+    - s3 backend: uses boto3 to upload the file then returns public URL.
+    """
+    if config.STORAGE_BACKEND.lower() != "s3":
+        return f"https://cdn.example.com/{object_key}"
+
+    import boto3  # type: ignore
+
+    client = boto3.client(
+        "s3",
+        endpoint_url=config.S3_ENDPOINT_URL,
+        region_name=config.S3_REGION_NAME,
+        aws_access_key_id=config.S3_ACCESS_KEY_ID,
+        aws_secret_access_key=config.S3_SECRET_ACCESS_KEY,
+    )
+    client.upload_file(local_path, config.S3_BUCKET, object_key, ExtraArgs={"ContentType": content_type})
+    return object_public_url(object_key)

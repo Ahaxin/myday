@@ -45,6 +45,7 @@ class EntryRead(BaseModel):
     language: Optional[str]
     transcript_clean: Optional[str]
     transcript_raw: Optional[str] = None
+    failure_reason: Optional[str] = None
 
 
 @router.post("", response_model=EntryCreateResponse, status_code=201)
@@ -106,20 +107,24 @@ def finalize_upload(
             entry.size_bytes = payload.size_bytes
         if payload.language is not None:
             entry.language = payload.language
+        # Transition to processing and assign a new idempotency key
+        import uuid
+        entry.status = EntryStatus.PROCESSING
+        idemp = uuid.uuid4().hex
+        entry.idempotency_key = idemp
 
         session.add(entry)
         session.commit()
         session.refresh(entry)
 
-        # Optionally enqueue transcription in background
-        if config.AUTO_ENQUEUE_TRANSCRIPTION:
-            try:  # pragma: no cover - optional runtime path
-                from ..tasks import transcribe_entry
+        # Enqueue transcription in background with idempotency key
+        try:  # pragma: no cover - optional runtime path
+            from ..tasks import transcribe_entry
 
-                transcribe_entry.delay(entry.id)
-            except Exception:
-                # Swallow errors to avoid impacting API response when worker is offline
-                pass
+            transcribe_entry.delay(entry.id, idempotency_key=idemp)
+        except Exception:
+            # Swallow errors to avoid impacting API response when worker is offline
+            pass
 
         return EntryRead(
             id=entry.id,
@@ -132,6 +137,56 @@ def finalize_upload(
             language=entry.language,
             transcript_clean=entry.transcript_clean,
             transcript_raw=entry.transcript_raw,
+            failure_reason=entry.failure_reason,
+        )
+
+
+class TranscribeRequest(BaseModel):
+    """Request to (re)enqueue transcription for an entry."""
+
+    idempotency_key: Optional[str] = None
+
+
+@router.post("/{entry_id}/transcribe", response_model=EntryRead)
+def enqueue_transcription(
+    entry_id: int,
+    payload: TranscribeRequest,
+    current_user: User = Depends(get_current_user),
+) -> EntryRead:
+    with session_scope() as session:
+        entry = session.get(Entry, entry_id)
+        if entry is None or entry.user_id != current_user.id:
+            raise HTTPException(status_code=404, detail="Entry not found")
+
+        # Move to processing and assign/replace idempotency key
+        import uuid
+
+        entry.status = EntryStatus.PROCESSING
+        key = payload.idempotency_key or uuid.uuid4().hex
+        entry.idempotency_key = key
+        session.add(entry)
+        session.commit()
+        session.refresh(entry)
+
+        try:  # pragma: no cover - best effort
+            from ..tasks import transcribe_entry
+
+            transcribe_entry.delay(entry.id, idempotency_key=key)
+        except Exception:
+            pass
+
+        return EntryRead(
+            id=entry.id,
+            user_id=entry.user_id,
+            created_at=entry.created_at,
+            duration_s=entry.duration_s,
+            status=entry.status,
+            audio_url=entry.audio_url,
+            size_bytes=entry.size_bytes,
+            language=entry.language,
+            transcript_clean=entry.transcript_clean,
+            transcript_raw=entry.transcript_raw,
+            failure_reason=entry.failure_reason,
         )
 
 
@@ -185,6 +240,7 @@ def list_entries(
                 language=row.language,
                 transcript_clean=row.transcript_clean,
                 transcript_raw=row.transcript_raw,
+                failure_reason=row.failure_reason,
             )
             for row in results
         ]
@@ -208,6 +264,7 @@ def get_entry(entry_id: int, current_user: User = Depends(get_current_user)) -> 
             language=entry.language,
             transcript_clean=entry.transcript_clean,
             transcript_raw=entry.transcript_raw,
+            failure_reason=entry.failure_reason,
         )
 
 
@@ -236,6 +293,7 @@ def update_entry(
 
     if "status" in updates and updates["status"] not in {
         EntryStatus.UPLOADED,
+        EntryStatus.PROCESSING,
         EntryStatus.TRANSCRIBED,
         EntryStatus.FAILED,
     }:
@@ -264,4 +322,5 @@ def update_entry(
             language=entry.language,
             transcript_clean=entry.transcript_clean,
             transcript_raw=entry.transcript_raw,
+            failure_reason=entry.failure_reason,
         )

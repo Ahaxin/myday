@@ -19,6 +19,7 @@ class EntryStatus:
     """Allowed status values for an entry."""
 
     UPLOADED = "uploaded"
+    PROCESSING = "processing"
     TRANSCRIBED = "transcribed"
     FAILED = "failed"
 

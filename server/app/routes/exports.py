@@ -8,6 +8,7 @@ from sqlmodel import select
 
 from ..database import session_scope
 from ..models import ExportRequest, ExportStatus, User
+from .. import config
 from ..security import get_current_user
 
 router = APIRouter()
@@ -39,7 +40,7 @@ def create_export(
     payload: ExportCreateRequest,
     current_user: User = Depends(get_current_user),
 ) -> ExportRead:
-    """Create an export request and simulate asynchronous processing."""
+    """Create an export request and generate archive synchronously (dev) or enqueue."""
     if payload.date_from > payload.date_to:
         raise HTTPException(status_code=400, detail="date_from must be before date_to")
     if payload.user_id != current_user.id:
@@ -57,16 +58,19 @@ def create_export(
         session.commit()
         session.refresh(export)
 
-    # Simulate asynchronous completion by immediately marking as complete.
-    with session_scope() as session:
-        stored = session.get(ExportRequest, export.id)
-        if stored:
-            stored.status = ExportStatus.COMPLETE
-            stored.result_url = f"https://downloads.example.com/exports/{stored.id}.zip"
-            session.add(stored)
-            session.commit()
-            session.refresh(stored)
-            export = stored
+    if config.EXPORT_SYNC:
+        from ..tasks import generate_export
+
+        generate_export(export.id)
+        with session_scope() as session:
+            export = session.get(ExportRequest, export.id)
+    else:  # pragma: no cover - runtime path
+        try:
+            from ..tasks import generate_export as generate_export_task
+
+            generate_export_task.delay(export.id)
+        except Exception:
+            pass
 
     return ExportRead(
         id=export.id,

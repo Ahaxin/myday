@@ -71,3 +71,6 @@ LLM_PROVIDER = os.getenv("MYDAY_LLM_PROVIDER", "none")  # none|openai
 LLM_MODEL = os.getenv("MYDAY_LLM_MODEL", "gpt-4o-mini")
 LLM_API_KEY = os.getenv("MYDAY_LLM_API_KEY")
 LLM_ENDPOINT = os.getenv("MYDAY_LLM_ENDPOINT", "https://api.openai.com/v1/chat/completions")
+
+# Export generation
+EXPORT_SYNC = _get_bool("MYDAY_EXPORT_SYNC", "true")
