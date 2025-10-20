@@ -6,10 +6,10 @@ struct EntryListView: View {
     var body: some View {
         Group {
             if entries.isEmpty {
-                ContentUnavailableView(
-                    "No recordings yet",
-                    systemImage: "waveform.slash",
-                    description: Text("Tap the microphone to capture your first thought.")
+                PlayfulEmptyState(
+                    title: "No recordings yet",
+                    message: "Tap the colorful mic below to start your first story!",
+                    symbolName: "waveform"
                 )
             } else {
                 List {
@@ -36,9 +36,14 @@ struct EntryListView: View {
             }
         }
         .safeAreaInset(edge: .bottom) {
-            RecordButton()
-                .padding(.horizontal)
-                .padding(.bottom)
+            VStack(spacing: 8) {
+                RecordButton()
+                Text(isChildFriendlyHint)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal)
+            .padding(.bottom)
         }
         .background(Color(.systemGroupedBackground))
     }
@@ -51,12 +56,13 @@ struct EntryRowView: View {
         HStack(alignment: .top, spacing: 16) {
             ZStack {
                 Circle()
-                    .fill(entry.status.color)
-                    .frame(width: 44, height: 44)
-                    .opacity(0.15)
+                    .fill(AppTheme.playfulGradient)
+                    .frame(width: 56, height: 56)
+                    .opacity(0.25)
                 Image(systemName: entry.status.iconName)
-                    .font(.title3)
-                    .foregroundStyle(entry.status.color)
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(entry.status.color, .white)
+                    .font(.system(size: 22, weight: .semibold))
             }
 
             VStack(alignment: .leading, spacing: 4) {
@@ -74,10 +80,10 @@ struct EntryRowView: View {
             Spacer()
 
             VStack(alignment: .trailing, spacing: 4) {
-                Label(entry.status.description, systemImage: entry.status.iconName)
-                    .font(.caption)
-                    .labelStyle(.iconOnly)
-                    .foregroundStyle(entry.status.color)
+                Image(systemName: entry.status.iconName)
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(entry.status.color, .white)
+                    .font(.system(size: 18, weight: .semibold))
                 Text(entry.formattedDuration)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -89,6 +95,8 @@ struct EntryRowView: View {
         .padding(.vertical, 8)
     }
 }
+
+private var isChildFriendlyHint: String { "Tap to record a message" }
 
 #Preview {
     NavigationStack {

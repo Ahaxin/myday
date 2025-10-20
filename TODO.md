@@ -1,4 +1,7 @@
-%23 TODO
+%23 TODO (iCloud‑Only MVP)
 
-- [ ] Add OpenAPI docs blurb to README linking to `http://localhost:8000/docs` and `http://localhost:8000/redoc`.
-
+- [ ] Add Info.plist keys check to README (microphone usage)
+- [ ] Style export download as a Button that opens the URL (consistent button style)
+- [ ] Clear saved playback position when audio finishes
+- [ ] Add basic CloudKit error banners in the UI (save/fetch)
+- [ ] Optional: Zip the export folder before sharing
