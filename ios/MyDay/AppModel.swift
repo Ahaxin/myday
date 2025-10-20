@@ -14,26 +14,34 @@ final class AppModel: ObservableObject {
     }
 
     func refresh() {
-        Task { @MainActor in
+        Task {
+            let fetched: [DayEntry]
             do {
-                let fetched = try await CloudKitService.shared.fetchEntries()
-                self.entries = fetched
+                fetched = try await CloudKitService.shared.fetchEntries()
             } catch {
                 // Fall back to previews on error so UI remains usable in dev
-                self.entries = PreviewData.sampleEntries
+                fetched = PreviewData.sampleEntries
             }
-            // Exports are not server-driven in iCloud-only mode; show empty for now
-            self.exports = []
+
+            await MainActor.run {
+                self.entries = fetched
+                // Exports are not server-driven in iCloud-only mode; show empty for now
+                self.exports = []
+            }
         }
     }
 
     /// Saves a finished local recording to iCloud and refreshes entries.
     func saveRecording(fileURL: URL, duration: TimeInterval, transcript: String? = nil) {
-        Task { @MainActor in
+        Task {
             do {
                 _ = try await CloudKitService.shared.saveEntry(duration: duration, audioFileURL: fileURL, transcript: transcript)
                 let fetched = try await CloudKitService.shared.fetchEntries()
-                self.entries = fetched
+
+                await MainActor.run {
+                    self.entries = fetched
+                }
+
                 // Remove temporary file after successful save
                 try? FileManager.default.removeItem(at: fileURL)
             } catch {

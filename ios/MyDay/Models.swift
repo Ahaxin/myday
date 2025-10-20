@@ -65,18 +65,26 @@ struct DayEntry: Identifiable, Hashable {
     }
 
     var formattedDate: String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        return formatter.string(from: createdAt)
+        Self.dateFormatter.string(from: createdAt)
     }
 
     var formattedSize: String {
+        Self.byteCountFormatter.string(fromByteCount: Int64(sizeBytes))
+    }
+
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter
+    }()
+
+    private static let byteCountFormatter: ByteCountFormatter = {
         let formatter = ByteCountFormatter()
         formatter.allowedUnits = [.useKB, .useMB]
         formatter.countStyle = .file
-        return formatter.string(fromByteCount: Int64(sizeBytes))
-    }
+        return formatter
+    }()
 }
 
 struct ExportRequest: Identifiable, Hashable {
