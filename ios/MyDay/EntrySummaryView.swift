@@ -3,31 +3,33 @@ import SwiftUI
 struct EntrySummaryView: View {
     let entries: [DayEntry]
 
-    private var totalMinutes: Int {
-        Int(entries.reduce(0) { $0 + $1.duration } / 60)
-    }
-
-    private var completedCount: Int {
-        entries.filter { $0.status == .transcribed }.count
-    }
-
-    private var latestEntry: DayEntry? {
-        entries.sorted { $0.createdAt > $1.createdAt }.first
+    private var summaryStats: Summary {
+        entries.reduce(into: Summary()) { partial, entry in
+            partial.totalDuration += entry.duration
+            if entry.status == .transcribed {
+                partial.completedCount += 1
+            }
+            if partial.latestEntry == nil || entry.createdAt > partial.latestEntry!.createdAt {
+                partial.latestEntry = entry
+            }
+        }
     }
 
     var body: some View {
+        let summary = summaryStats
+
         VStack(alignment: .leading, spacing: 16) {
             Text("Today")
                 .font(.headline)
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 16) {
-                SummaryStatView(title: "Minutes", value: "\(totalMinutes)")
-                SummaryStatView(title: "Completed", value: "\(completedCount)")
+                SummaryStatView(title: "Minutes", value: "\(summary.totalMinutes)")
+                SummaryStatView(title: "Completed", value: "\(summary.completedCount)")
                 SummaryStatView(title: "Entries", value: "\(entries.count)")
             }
 
-            if let latestEntry {
+            if let latestEntry = summary.latestEntry {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Latest note")
                         .font(.subheadline)
@@ -48,6 +50,18 @@ struct EntrySummaryView: View {
             RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .fill(.thinMaterial)
         )
+    }
+}
+
+private extension EntrySummaryView {
+    struct Summary {
+        var totalDuration: TimeInterval = 0
+        var completedCount: Int = 0
+        var latestEntry: DayEntry?
+
+        var totalMinutes: Int {
+            Int(totalDuration / 60)
+        }
     }
 }
 
